@@ -1,0 +1,5 @@
+# requirements.txt：声明部署时需要安装的依赖
+streamlit==1.32.2  # 本地用的Streamlit版本，可在本地终端输 pip show streamlit 查看
+pandas==2.2.1      # 本地用的pandas版本，同理用 pip show pandas 查看
+numpy==1.26.4      # 同上，pip show numpy
+openpyxl==3.1.2    # 关键！解决Excel读取问题，本地已装，部署必须显式声明
