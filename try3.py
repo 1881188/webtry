@@ -6,6 +6,21 @@ import io
 import os
 import platform
 
+
+try:
+    import openpyxl
+    st.success(f"✅ openpyxl已安装，版本：{openpyxl.__version__}")
+except ImportError:
+    st.error("❌ openpyxl未安装，尝试自动安装...")
+    # 强制安装最新兼容版本
+    import subprocess
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "openpyxl>=3.3.0"])
+    try:
+        import openpyxl
+        st.success(f"✅ 自动安装成功，版本：{openpyxl.__version__}")
+    except ImportError:
+        st.error("❌ 自动安装失败，请检查依赖配置")
+        st.stop()  # 终止程序，避免后续错误
 # 必要列定义
 UPLOAD_REQUIRED_COLUMNS = [
     '活动', '活动第几天', '渠道', '广告系列ID_h', '广告组ID_h',
@@ -469,3 +484,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
