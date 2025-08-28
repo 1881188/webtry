@@ -1,4 +1,5 @@
 streamlit==1.32.2
-pandas==2.2.1
+pandas==2.1.4  # 预编译版，安装快，避免卡住
 numpy==1.26.4
-openpyxl==3.2.0b1  # 环境中可用的最高版本，解决依赖冲突
+openpyxl==3.2.0b1
+
