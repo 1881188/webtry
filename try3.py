@@ -6,13 +6,6 @@ import io
 import os
 import platform
 
-# 确保页面配置在所有操作前设置
-st.set_page_config(
-    page_title="广告指标分析系统",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
 # 必要列定义
 UPLOAD_REQUIRED_COLUMNS = [
     '活动', '活动第几天', '渠道', '广告系列ID_h', '广告组ID_h',
@@ -25,7 +18,7 @@ FINAL_REQUIRED_COLUMNS = UPLOAD_REQUIRED_COLUMNS + [
 ]
 
 
-@st.cache_data(ttl=3600)  # 增加缓存时间，减少重计算
+@st.cache_data
 def load_ad_data(file_path):
     """读取生成的含计算指标的文件，返回清洗后的数据和日志"""
     try:
@@ -34,13 +27,13 @@ def load_ad_data(file_path):
             return None, None
 
         # 检查文件是否为空
-        excel_file = pd.ExcelFile(file_path, engine='openpyxl')
+        excel_file = pd.ExcelFile(file_path)
         if len(excel_file.sheet_names) == 0:
             st.error('❌ Excel文件不包含任何工作表')
             return None, None
 
         # 读取数据
-        df = pd.read_excel(file_path, sheet_name='Sheet1', engine='openpyxl')
+        df = pd.read_excel(file_path, sheet_name='Sheet1')
 
         # 检查数据是否为空
         if df.empty:
@@ -242,10 +235,6 @@ def main():
     st.title('广告指标计算与综合排名系统')
     st.divider()
 
-    # 使用session_state保存状态，减少不必要的重渲染
-    if 'stage' not in st.session_state:
-        st.session_state.stage = 0
-
     # 步骤1：文件上传
     st.subheader('📤 步骤1：上传原始广告数据')
     uploaded_file = st.file_uploader(
@@ -256,15 +245,11 @@ def main():
 
     if not uploaded_file:
         st.info('ℹ️ 请先上传符合要求的Excel文件，再进行后续操作')
-        st.session_state.stage = 0
         return
-    else:
-        st.session_state.stage = 1
 
     # 步骤2：验证原始数据列
     try:
-        # 显式指定引擎，避免依赖问题
-        raw_df = pd.read_excel(uploaded_file, sheet_name='Sheet1', engine='openpyxl')
+        raw_df = pd.read_excel(uploaded_file, sheet_name='Sheet1')
 
         if raw_df.empty:
             st.error('❌ 上传的文件为空，没有可处理的数据')
@@ -292,53 +277,38 @@ def main():
         return
 
     st.success('✅ 所有指标计算完成！')
-    st.session_state.stage = 2
 
-    # 预览计算结果 - 限制显示行数，避免大量数据导致渲染问题
-    st.subheader('📄 计算结果预览')
+    # 预览计算结果
+    st.subheader('📄 计算结果预览（前5行）')
     preview_cols = ['活动', '活动第几天', '渠道', '业绩', '订单', 'ROI', 'CTR', 'CPC', 'CPA']
     preview_cols = [col for col in preview_cols if col in calculated_df.columns]
+    st.dataframe(calculated_df[preview_cols].head(), use_container_width=True)
 
-    # 限制预览数据量，解决渲染问题
-    max_preview_rows = 100
-    if len(calculated_df) > max_preview_rows:
-        st.info(f'⚠️ 数据量较大，仅显示前{max_preview_rows}行预览')
-        st.dataframe(
-            calculated_df[preview_cols].head(max_preview_rows),
-            use_container_width=True,
-            height=300  # 固定高度，避免动态变化
-        )
-    else:
-        st.dataframe(
-            calculated_df[preview_cols],
-            use_container_width=True,
-            height=300
-        )
-
-    # 步骤4：保存新文件和下载功能
+    # 步骤4：保存新文件（优先桌面目录）+ 下载功能
     st.subheader('💾 步骤3：生成含指标的新文件')
     output_filename = '广告数据_含计算指标.xlsx'
     local_save_success = False
     local_file_path = None
 
-    # 尝试保存到桌面目录
+    # 1. 尝试保存到桌面目录（优先推荐，权限更高）
     try:
         desktop_path = get_desktop_path()
         if not desktop_path.exists():
             desktop_path.mkdir(parents=True, exist_ok=True)
         local_file_path = desktop_path / output_filename
 
-        calculated_df.to_excel(local_file_path, index=False, sheet_name='Sheet1', engine='openpyxl')
+        calculated_df.to_excel(local_file_path, index=False, sheet_name='Sheet1')
         local_save_success = True
         st.success(f'✅ 文件已保存到桌面！路径：{local_file_path.absolute()}')
         st.info('💡 提示：可直接在桌面找到文件，或复制上方路径到文件管理器打开')
     except PermissionError:
         st.warning('⚠️ 桌面目录无写入权限，将尝试保存到文档目录')
+        # 2. 备选：尝试保存到文档目录
         try:
             docs_path = Path(os.path.expanduser("~")) / "Documents"
             docs_path.mkdir(parents=True, exist_ok=True)
             local_file_path = docs_path / output_filename
-            calculated_df.to_excel(local_file_path, index=False, sheet_name='Sheet1', engine='openpyxl')
+            calculated_df.to_excel(local_file_path, index=False, sheet_name='Sheet1')
             local_save_success = True
             st.success(f'✅ 文件已保存到文档目录！路径：{local_file_path.absolute()}')
         except Exception as e:
@@ -346,9 +316,9 @@ def main():
     except Exception as e:
         st.error(f'❌ 本地保存失败：{str(e)}')
 
-    # 提供文件下载按钮
+    # 3. 保底方案：提供文件下载按钮
     buffer = io.BytesIO()
-    calculated_df.to_excel(buffer, index=False, sheet_name='Sheet1', engine='openpyxl')
+    calculated_df.to_excel(buffer, index=False, sheet_name='Sheet1')
     buffer.seek(0)
 
     st.download_button(
@@ -371,139 +341,125 @@ def main():
         st.subheader('🏆 步骤4：广告指标综合排名')
         st.divider()
 
-        # 使用容器隔离排名部分，减少渲染冲突
-        with st.container():
-            df, clean_log = load_ad_data(local_file_path)
-            if df is None or df.empty:
-                st.error('❌ 无法加载新生成的文件，排名功能无法使用')
-                return
+        df, clean_log = load_ad_data(local_file_path)
+        if df is None or df.empty:
+            st.error('❌ 无法加载新生成的文件，排名功能无法使用')
+            return
 
-            # 数据概况
-            st.info('📈 数据概况：')
-            st.write(f'- 总数据量：{len(df)} 条')
-            st.write(f'- 活动类型：{df["活动"].nunique()} 种（{", ".join(sorted(df["活动"].unique())[:3])}...）')
-            st.write(f'- 天数范围：{df["活动第几天"].min()} - {df["活动第几天"].max()} 天')
-            for ind, log in clean_log.items():
-                st.write(f'- {ind}：{log}')
+        # 数据概况
+        st.info('📈 数据概况：')
+        st.write(f'- 总数据量：{len(df)} 条')
+        st.write(f'- 活动类型：{df["活动"].nunique()} 种（{", ".join(sorted(df["活动"].unique())[:3])}...）')
+        st.write(f'- 天数范围：{df["活动第几天"].min()} - {df["活动第几天"].max()} 天')
+        for ind, log in clean_log.items():
+            st.write(f'- {ind}：{log}')
+        st.divider()
+
+        # 筛选条件（侧边栏）
+        st.sidebar.header('1. 筛选条件')
+        selected_activity = st.sidebar.selectbox(
+            '选择活动',
+            options=['全部活动'] + sorted(df['活动'].unique()),
+            index=0
+        )
+
+        min_day, max_day = df['活动第几天'].min(), df['活动第几天'].max()
+        selected_day = st.sidebar.number_input(
+            f'选择活动天数（{min_day}-{max_day}）',
+            min_value=min_day, max_value=max_day, value=min_day, step=1
+        )
+
+        # 执行筛选
+        filtered_df = df[df['活动第几天'] == selected_day].copy()
+        if selected_activity != '全部活动':
+            filtered_df = filtered_df[filtered_df['活动'] == selected_activity].copy()
+        filtered_df = filtered_df.reset_index(drop=True)
+
+        if filtered_df.empty:
+            st.warning(f'⚠️ 未找到「{selected_activity} - 第{selected_day}天」的数据，请更换筛选条件')
+            return
+        st.success(f'✅ 筛选到 {len(filtered_df)} 条数据，可设置权重计算排名')
+
+        # 权重设置（侧边栏）
+        st.sidebar.header('2. 指标权重（总和需100%）')
+        weights = {}
+        default_weight = round(100 / 9, 2)
+
+        st.sidebar.subheader('📈 收益/效率类')
+        weights['ROI'] = st.sidebar.number_input('ROI 权重(%)', 0.0, 100.0, default_weight, 0.1)
+        weights['覆盖'] = st.sidebar.number_input('覆盖 权重(%)', 0.0, 100.0, default_weight, 0.1)
+        weights['点击'] = st.sidebar.number_input('点击 权重(%)', 0.0, 100.0, default_weight, 0.1)
+        weights['订单'] = st.sidebar.number_input('订单 权重(%)', 0.0, 100.0, default_weight, 0.1)
+        weights['CTR'] = st.sidebar.number_input('CTR 权重(%)', 0.0, 100.0, default_weight, 0.1)
+        weights['CVR'] = st.sidebar.number_input('CVR 权重(%)', 0.0, 100.0, default_weight, 0.1)
+
+        st.sidebar.subheader('💰 成本类')
+        weights['CPC'] = st.sidebar.number_input('CPC 权重(%)', 0.0, 100.0, default_weight, 0.1)
+        weights['CPA'] = st.sidebar.number_input('CPA 权重(%)', 0.0, 100.0, default_weight, 0.1)
+        weights['CPM'] = st.sidebar.number_input('CPM 权重(%)', 0.0, 100.0, default_weight, 0.1)
+
+        # 权重总和校验
+        total_weight = round(sum(weights.values()), 1)
+        st.sidebar.info(f'当前总权重：{total_weight}%')
+        if total_weight != 100.0:
+            st.warning(f'⚠️ 请调整权重至100%（当前{total_weight}%），否则无法计算排名')
+            return
+
+        # 综合排名计算
+        ranked_df = calculate_single_ranking(filtered_df)
+        total_count = len(ranked_df)
+
+        ranked_df['综合得分'] = 0.0
+        for ind, w in weights.items():
+            rank_col = f'{ind}_排名'
+            ranked_df['综合得分'] += (total_count - ranked_df[rank_col] + 1) * (w / 100)
+
+        ranked_df['综合排名'] = ranked_df['综合得分'].rank(method='min', ascending=False).astype('Int64')
+        final_df = ranked_df.sort_values('综合排名', ascending=True).reset_index(drop=True)
+
+        # 排名结果展示
+        st.subheader(f'📊 综合排名结果：{selected_activity} - 第{selected_day}天（共{total_count}条）')
+        st.divider()
+
+        display_cols = [
+            '综合排名', '综合得分', '活动', '活动第几天', '渠道', '广告系列ID_h', '广告组ID_h',
+            '业绩', '订单', '花费', '曝光', '点击', '覆盖', 'ROI', 'CTR', 'CPC', 'CPA', 'CPM', 'CVR',
+            'ROI_排名', '覆盖_排名', '点击_排名', '订单_排名', 'CTR_排名', 'CVR_排名',
+            'CPC_排名', 'CPA_排名', 'CPM_排名'
+        ]
+        show_cols = [col for col in display_cols if col in final_df.columns]
+        show_df = final_df[show_cols].copy()
+
+        # 格式化数值显示
+        num_cols = ['业绩', '花费', 'CPC', 'CPA', 'CPM', '综合得分', '曝光', '点击', '订单', '覆盖']
+        for col in num_cols:
+            if col in show_df.columns:
+                show_df[col] = show_df[col].round(2)
+
+        st.dataframe(
+            show_df,
+            column_config={
+                '综合排名': st.column_config.NumberColumn('综合排名', width='small'),
+                '综合得分': st.column_config.NumberColumn('综合得分', width='small'),
+                **{f'{ind}_排名': st.column_config.NumberColumn(f'{ind}排名', width='small') for ind in weights.keys()}
+            },
+            use_container_width=True,
+            height=400
+        )
+
+        # 展示Top3
+        st.divider()
+        st.write('🏆 综合排名Top3：')
+        top3_cols = ['综合排名', '广告系列ID_h', '广告组ID_h', 'ROI', 'CPA', 'CPC', '综合得分']
+        top3 = final_df[final_df['综合排名'] <= 3][[col for col in top3_cols if col in final_df.columns]]
+
+        for _, row in top3.iterrows():
+            st.write(f"""
+            **第{row['综合排名']}名** | 系列ID：{row['广告系列ID_h']} | 组ID：{row['广告组ID_h']}
+            - ROI：{row['ROI']} | CPA：{row['CPA']:.2f} | CPC：{row['CPC']:.2f}
+            - 综合得分：{row['综合得分']:.2f}
+            """)
             st.divider()
-
-            # 筛选条件（侧边栏）
-            st.sidebar.header('1. 筛选条件')
-            selected_activity = st.sidebar.selectbox(
-                '选择活动',
-                options=['全部活动'] + sorted(df['活动'].unique()),
-                index=0,
-                key='activity_select'  # 增加唯一key，避免组件冲突
-            )
-
-            min_day, max_day = df['活动第几天'].min(), df['活动第几天'].max()
-            selected_day = st.sidebar.number_input(
-                f'选择活动天数（{min_day}-{max_day}）',
-                min_value=min_day, max_value=max_day, value=min_day, step=1,
-                key='day_input'  # 增加唯一key
-            )
-
-            # 执行筛选
-            filtered_df = df[df['活动第几天'] == selected_day].copy()
-            if selected_activity != '全部活动':
-                filtered_df = filtered_df[filtered_df['活动'] == selected_activity].copy()
-            filtered_df = filtered_df.reset_index(drop=True)
-
-            if filtered_df.empty:
-                st.warning(f'⚠️ 未找到「{selected_activity} - 第{selected_day}天」的数据，请更换筛选条件')
-                return
-            st.success(f'✅ 筛选到 {len(filtered_df)} 条数据，可设置权重计算排名')
-
-            # 权重设置（侧边栏）
-            st.sidebar.header('2. 指标权重（总和需100%）')
-            weights = {}
-            default_weight = round(100 / 9, 2)
-
-            st.sidebar.subheader('📈 收益/效率类')
-            weights['ROI'] = st.sidebar.number_input('ROI 权重(%)', 0.0, 100.0, default_weight, 0.1, key='w_roi')
-            weights['覆盖'] = st.sidebar.number_input('覆盖 权重(%)', 0.0, 100.0, default_weight, 0.1, key='w_cover')
-            weights['点击'] = st.sidebar.number_input('点击 权重(%)', 0.0, 100.0, default_weight, 0.1, key='w_click')
-            weights['订单'] = st.sidebar.number_input('订单 权重(%)', 0.0, 100.0, default_weight, 0.1, key='w_order')
-            weights['CTR'] = st.sidebar.number_input('CTR 权重(%)', 0.0, 100.0, default_weight, 0.1, key='w_ctr')
-            weights['CVR'] = st.sidebar.number_input('CVR 权重(%)', 0.0, 100.0, default_weight, 0.1, key='w_cvr')
-
-            st.sidebar.subheader('💰 成本类')
-            weights['CPC'] = st.sidebar.number_input('CPC 权重(%)', 0.0, 100.0, default_weight, 0.1, key='w_cpc')
-            weights['CPA'] = st.sidebar.number_input('CPA 权重(%)', 0.0, 100.0, default_weight, 0.1, key='w_cpa')
-            weights['CPM'] = st.sidebar.number_input('CPM 权重(%)', 0.0, 100.0, default_weight, 0.1, key='w_cpm')
-
-            # 权重总和校验
-            total_weight = round(sum(weights.values()), 1)
-            st.sidebar.info(f'当前总权重：{total_weight}%')
-            if total_weight != 100.0:
-                st.warning(f'⚠️ 请调整权重至100%（当前{total_weight}%），否则无法计算排名')
-                return
-
-            # 综合排名计算
-            with st.spinner('正在计算综合排名...'):
-                ranked_df = calculate_single_ranking(filtered_df)
-                total_count = len(ranked_df)
-
-                ranked_df['综合得分'] = 0.0
-                for ind, w in weights.items():
-                    rank_col = f'{ind}_排名'
-                    ranked_df['综合得分'] += (total_count - ranked_df[rank_col] + 1) * (w / 100)
-
-                ranked_df['综合排名'] = ranked_df['综合得分'].rank(method='min', ascending=False).astype('Int64')
-                final_df = ranked_df.sort_values('综合排名', ascending=True).reset_index(drop=True)
-
-            # 排名结果展示 - 限制显示行数
-            st.subheader(f'📊 综合排名结果：{selected_activity} - 第{selected_day}天（共{total_count}条）')
-            st.divider()
-
-            display_cols = [
-                '综合排名', '综合得分', '活动', '活动第几天', '渠道', '广告系列ID_h', '广告组ID_h',
-                '业绩', '订单', '花费', '曝光', '点击', '覆盖', 'ROI', 'CTR', 'CPC', 'CPA', 'CPM', 'CVR',
-                'ROI_排名', '覆盖_排名', '点击_排名', '订单_排名', 'CTR_排名', 'CVR_排名',
-                'CPC_排名', 'CPA_排名', 'CPM_排名'
-            ]
-            show_cols = [col for col in display_cols if col in final_df.columns]
-            show_df = final_df[show_cols].copy()
-
-            # 格式化数值显示
-            num_cols = ['业绩', '花费', 'CPC', 'CPA', 'CPM', '综合得分', '曝光', '点击', '订单', '覆盖']
-            for col in num_cols:
-                if col in show_df.columns:
-                    show_df[col] = show_df[col].round(2)
-
-            # 限制显示行数，防止渲染错误
-            max_display_rows = 200
-            if len(show_df) > max_display_rows:
-                st.info(f'⚠️ 数据量较大，仅显示前{max_display_rows}行结果')
-                display_df = show_df.head(max_display_rows)
-            else:
-                display_df = show_df
-
-            st.dataframe(
-                display_df,
-                column_config={
-                    '综合排名': st.column_config.NumberColumn('综合排名', width='small'),
-                    '综合得分': st.column_config.NumberColumn('综合得分', width='small'),
-                    **{f'{ind}_排名': st.column_config.NumberColumn(f'{ind}排名', width='small') for ind in
-                       weights.keys()}
-                },
-                use_container_width=True,
-                height=400  # 固定高度，避免动态变化
-            )
-
-            # 展示Top3
-            st.divider()
-            st.write('🏆 综合排名Top3：')
-            top3_cols = ['综合排名', '广告系列ID_h', '广告组ID_h', 'ROI', 'CPA', 'CPC', '综合得分']
-            top3 = final_df[final_df['综合排名'] <= 3][[col for col in top3_cols if col in final_df.columns]]
-
-            for _, row in top3.iterrows():
-                st.write(f"""
-                **第{row['综合排名']}名** | 系列ID：{row['广告系列ID_h']} | 组ID：{row['广告组ID_h']}
-                - ROI：{row['ROI']} | CPA：{row['CPA']:.2f} | CPC：{row['CPC']:.2f}
-                - 综合得分：{row['综合得分']:.2f}
-                """)
-                st.divider()
     else:
         st.info('ℹ️ 排名功能使用说明：')
         st.write('1. 点击上方"下载文件"按钮，将文件保存到本地（如桌面）')
