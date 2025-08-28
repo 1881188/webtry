@@ -1,4 +1,4 @@
 streamlit==1.32.2
 pandas==2.2.1
 numpy==1.26.4
-openpyxl>=3.3.0  # 不指定具体版本，让工具自动选择兼容Python 3.13的版本
+openpyxl==3.2.0b1  # 环境中可用的最高版本，解决依赖冲突
